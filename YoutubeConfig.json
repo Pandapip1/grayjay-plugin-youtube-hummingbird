@@ -1,16 +1,16 @@
 {
-	"name": "Youtube",
-	"description": "One of the biggest video platforms owned by Google",
+	"name": "Youtube (Hummingbird)",
+	"description": "One of the biggest video platforms owned by Google. Hummingbird's fork of the FUTO plugin.",
 	"author": "FUTO",
 	"authorUrl": "https://futo.org",
 	"platformUrl": "https://youtube.com",
-	"sourceUrl": "https://plugins.grayjay.app/Youtube/YoutubeConfig.json",
-	"repositoryUrl": "https://gitlab.futo.org/videostreaming/plugins/youtube",
+	"sourceUrl": "https://hummingbird.eightybps.com/plugins/youtube/YoutubeConfig.json",
+	"repositoryUrl": "https://hummingbird.eightybps.com/plugins/youtube/source",
 	"scriptUrl": "./YoutubeScript.js",
 
 	"version": 371,
 	"iconUrl": "./youtube.png",
-	"id": "35ae969a-a7db-11ed-afa1-0242ac120002",
+	"id": "ce484355-23d5-44d5-95ff-aa0b1a0c2471",
 
 	"scriptSignature": "",
 	"scriptPublicKey": "",
