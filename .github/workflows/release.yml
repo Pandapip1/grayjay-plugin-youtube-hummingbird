@@ -1,0 +1,134 @@
+# Cutting a GitHub Release tagged v<N> publishes version N of this plugin:
+# the config's "version" becomes N (it must be higher than the version
+# GitHub Pages serves now), the script is signed with Hummingbird's
+# plugin-signing key (RSA PKCS#1 v1.5, SHA-512, as Grayjay expects; the same
+# as Hummingbird's scripts/sign-plugin), the signature is checked against the
+# pinned public key in hummingbird-signing-key.pub.pem, and the signed config
+# and script are deployed to GitHub Pages and attached to the Release.
+# Nothing is committed. The key exists here only as the encrypted secret
+# PLUGIN_SIGNING_KEY; it is decrypted into a pipe, never onto disk.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CONFIG: YoutubeConfig.json
+  SCRIPT: YoutubeScript.js
+  ICON: youtube.png
+  PAGES_URL: https://pandapip1.github.io/grayjay-plugin-youtube-hummingbird
+
+jobs:
+  build:
+    # Release events only come from this repository; this also refuses to
+    # run in a copy of it.
+    if: github.repository == 'Pandapip1/grayjay-plugin-youtube-hummingbird'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Version from the tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v([0-9]+)$ ]] || { echo "::error::Release tags are v<N>, got '$TAG'"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          # The version GitHub Pages serves now; if Pages can't be read, the
+          # repository's own config is the floor.
+          published=$(curl -fsSL "$PAGES_URL/$CONFIG" | jq -er '.version') || published=$(jq -r '.version' "$CONFIG")
+          if (( version <= published )); then
+            echo "::error::v$version is not newer than the published version $published"
+            exit 1
+          fi
+          mkdir _site
+          python3 - "$CONFIG" "_site/$CONFIG" "$version" <<'PY'
+          import json, re, sys
+          source, target, version = sys.argv[1], sys.argv[2], int(sys.argv[3])
+          text = open(source, newline="").read()
+          text, count = re.subn(r'("version"\s*:\s*)\d+', lambda m: f"{m.group(1)}{version}", text, count=1)
+          assert count == 1, "no version field"
+          json.loads(text)
+          open(target, "w", newline="").write(text)
+          PY
+          cp "$SCRIPT" "$ICON" LICENSE NOTICE.md .nojekyll _site/
+          echo "Publishing version $version (was $published)"
+
+      - name: Sign
+        env:
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          PLUGIN_SIGNING_KEY_PASSWORD: ${{ secrets.PLUGIN_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # The encrypted key and its password come from the environment;
+          # the decrypted key only exists inside the pipe into openssl.
+          signature=$(openssl pkey -in <(printf '%s\n' "$PLUGIN_SIGNING_KEY") -passin env:PLUGIN_SIGNING_KEY_PASSWORD \
+            | openssl dgst -sha512 -binary -sign /dev/stdin "_site/$SCRIPT" | base64 -w0)
+          unset PLUGIN_SIGNING_KEY PLUGIN_SIGNING_KEY_PASSWORD
+          printf '%s' "$signature" | base64 -d \
+            | openssl dgst -sha512 -verify hummingbird-signing-key.pub.pem -signature /dev/stdin "_site/$SCRIPT"
+          public_key=$(grep -v -- '-----' hummingbird-signing-key.pub.pem | tr -d '\n')
+          python3 - "_site/$CONFIG" "$signature" "$public_key" <<'PY'
+          import json, re, sys
+          path, signature, key = sys.argv[1:]
+          text = open(path, newline="").read()
+          for field, value in (("scriptSignature", signature), ("scriptPublicKey", key)):
+              text, count = re.subn(rf'("{field}"\s*:\s*)"[^"]*"', lambda m: f'{m.group(1)}"{value}"', text)
+              assert count == 1, field
+          json.loads(text)
+          open(path, "w", newline="").write(text)
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-plugin
+          path: |
+            _site/${{ env.CONFIG }}
+            _site/${{ env.SCRIPT }}
+
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  attach:
+    # Attaching files to the Release needs write access to the repository's
+    # contents; this job gets no secrets and runs no repository code.
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed-plugin
+          path: signed
+      - name: Attach the signed files to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" signed/* --clobber --repo "$GITHUB_REPOSITORY"
