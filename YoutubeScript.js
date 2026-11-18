@@ -1,3 +1,5 @@
+// Modified by Hummingbird (2026-11-17) from FUTO's Youtube plugin (https://gitlab.futo.org/videostreaming/plugins/youtube).
+// Changes: see NOTICE.md. Licensed under the GNU AGPL v3, as the original.
 const URL_BASE = "https://www.youtube.com";
 const URL_BASE_M = "https://m.youtube.com";
 const URL_HOME = "https://www.youtube.com";
