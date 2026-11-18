@@ -5508,41 +5508,32 @@ class YTABRExecutor {
 		this.videoId = videoId;
 		this.playerConfig = playerConfig;
 		this.useLogin = !!options?.useLogin;
+		this.potReady = Promise.resolve();
 		
 		if(bgData) {
 			if(bgData.pot)
 				this.pot = bgData.pot;
+			else if(!bgData.visitorId && !bgData.dataSyncId) {
+				log("Botguard no visitorId or dataSyncId found, not using botguard!");
+			}
+			else if(this.playerConfig?.useVideoIdPot) {
+				log("POT Type Used: Video");
+				this.potReady = tryGetPOTCustom(this.videoId, (pot)=>{
+					log("Botguard token to use: " + pot);
+					console.log("Botguard Token to use:", {
+						"pot": pot,
+						"visitorData": bgData.visitorData,
+						"dataSyncId": bgData.dataSyncId
+					});
+					this.pot = pot;
+				}, true, true);
+			}
 			else {
-				if(!bgData.visitorId && !bgData.dataSyncId) {
-					log("Botguard no visitorId or dataSyncId found, not using botguard!");
-				}
-				tryGetBotguard((bg)=>{
-					log("PlayerConfig: " + JSON.stringify(this.playerConfig));
-					if(this.playerConfig?.useVideoIdPot) {
-						log("POT Type Used: Video");
-						bg.getTokenOrCreateCustom(this.videoId, (pot)=>{
-							log("Botguard token to use: " + pot);
-							console.log("Botguard Token to use:", {
-								"pot": pot,
-								"visitorData": bgData.visitorData,
-								"dataSyncId": bgData.dataSyncId
-							});
-							this.pot = pot;
-						}, true);
-					}
-					else {
-						log("POT Type Used: Session");
-						bg.getTokenOrCreate(bgData.visitorData, bgData.dataSyncId, (pot)=>{
-							log("Botguard token to use: " + pot);
-							console.log("Botguard Token to use:", {
-								"pot": pot,
-								"visitorData": bgData.visitorData,
-								"dataSyncId": bgData.dataSyncId
-							});
-							this.pot = pot;
-						}, bgData.visitorDataType, true);
-					}
-				});
+				log("POT Type Used: Session");
+				this.potReady = tryGetPOT(bgData, (pot)=>{
+					log("Botguard token to use: " + pot);
+					this.pot = pot;
+				}, bgData.visitorDataType, true);
 			}
 		}
 
@@ -5701,7 +5692,7 @@ class YTABRExecutor {
 		bridge.toast("UMP [" + this.type + "] Recovered");
 	}
 
-	executeRequest(url, headers, retryCount, overrideSegment) {
+	async executeRequest(url, headers, retryCount, overrideSegment) {
 		if(!IS_TESTING)
 			console.clear();
 		if(this.childExecutor)
@@ -5732,6 +5723,7 @@ class YTABRExecutor {
 				log("UMP [" + this.type + "] Cached segment " + segment + " was undefined, refetching");
 		}
 
+		await this.potReady;
 		const pot = overridePOT ?? this.pot ?? getInitialPOTVideo();
 		log("UMP [" + this.type + "] requesting segment: " + segment + ", time: " + time + ", itag: " + this.itag + (pot ? (", pot:" + pot.substring(0, 5) + "..") : ""));
 		if(overrideSegment)
